@@ -1,11 +1,15 @@
-# 🛡️ IAM Compliance Audit Toolkit
+# 🔍 IAM Compliance Audit Toolkit
 
-Tools and scripts for enforcing security standards and auditing identity access across enterprise systems.
+### 📋 Project Overview
+* **The Problem:** Orphaned accounts from former employees posed a significant security risk and complicated compliance audits.
+* **The Solution:** Created PowerShell audit scripts to identify inactive accounts and verify multi-factor authentication (MFA) enforcement.
+* **Business Impact:** Strengthened the security perimeter by automating **quarterly access reviews**, meeting strict HIPAA and NIST requirements.
 
-### 🛠️ Featured Script: Audit-OrphanedAccounts.ps1
-Automates the detection of accounts that were not fully deprovisioned during the "Leaver" process. This script helps reduce the organizational attack surface and optimizes SaaS licensing costs.
+### 🛠️ Key Capabilities
+* **Orphaned Account Discovery:** Scripts to flag disabled AD users with active licenses.
+* **MFA Verification:** Auditing user authentication methods to ensure MFA coverage.
+* **Compliance Reporting:** Exporting audit logs for security team review.
 
-### ⚖️ Compliance & Security Standards
-- **NIST 800-53 & DoD 8570:** Alignment with federal and enterprise security requirements for access control.
-- **Least Privilege:** Ensuring zero-trust principles are applied to all user provisioning and deprovisioning workflows.
-- **Endpoint Security:** Integration with patch management and user access controls to ensure compliance.
+### 🔧 Usage
+1. Run `.\scripts\Audit-OrphanedAccounts.ps1` to generate a report of high-risk accounts.
+2. Review the output log to initiate deprovisioning in ServiceNow.
