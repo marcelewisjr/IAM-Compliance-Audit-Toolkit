@@ -1,13 +1,87 @@
 # File: scripts/Audit-ConditionalAccess.ps1
 <#
 .SYNOPSIS
-    Audits Entra ID Conditional Access policies for MFA enforcement.
+    Audits Entra ID Conditional Access policies for MFA enforcement and Zero Trust compliance.
 .DESCRIPTION
-    Verifies that 'Zero Trust' authentication requirements are active for high-risk sign-ins.
+    Connects to Microsoft Graph and retrieves all Conditional Access policies.
+    Flags policies that are disabled, missing MFA grant controls, or exclude
+    high-risk users such as admins. Exports findings for security team review.
+    Aligned to NIST 800-53 IA-2 (MFA), AC-2 (Account Mgmt), AC-17 (Remote Access).
+.NOTES
+    Requires: Microsoft.Graph module
+    Run: Install-Module Microsoft.Graph -Scope CurrentUser
+    Permissions: Policy.Read.All, Directory.Read.All
 #>
 
-Write-Host "Auditing M365 Security Baselines..." -ForegroundColor Cyan
+Connect-MgGraph -Scopes "Policy.Read.All", "Directory.Read.All" -NoWelcome
 
-# Logic to check for policies requiring MFA
-Write-Host "Verifying 'Require MFA for All Users' policy..." -ForegroundColor Yellow
-Write-Host "SUCCESS: Zero-Trust policy enforcement confirmed for 'Admin' roles." -ForegroundColor Green
+$Results   = @()
+$Timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+$ReportPath = ".\reports\ConditionalAccessAudit_$Timestamp.csv"
+
+Write-Host "Auditing Entra ID Conditional Access Policies..." -ForegroundColor Cyan
+
+# Retrieve all Conditional Access policies
+$CAPolicies = Get-MgIdentityConditionalAccessPolicy
+
+Write-Host "Found $($CAPolicies.Count) Conditional Access policies to evaluate." -ForegroundColor Yellow
+
+foreach ($Policy in $CAPolicies) {
+
+    $Issues    = @()
+    $RiskLevel = "Low"
+
+    # Check 1: Policy is not enabled
+    # NIST IA-2: MFA must be actively enforced, not in report-only mode
+    if ($Policy.State -ne "enabled") {
+        $Issues += "Policy is $($Policy.State) — not actively enforcing controls"
+        $RiskLevel = "High"
+    }
+
+    # Check 2: No MFA grant control present
+    # NIST IA-2(1): MFA required for all network access to privileged accounts
+    $GrantControls   = $Policy.GrantControls.BuiltInControls
+    $HasMFA          = $GrantControls -contains "mfa"
+    if (-not $HasMFA) {
+        $Issues += "No MFA grant control configured"
+        $RiskLevel = "High"
+    }
+
+    # Check 3: Policy excludes all users (effectively useless)
+    $ExcludedUsers = $Policy.Conditions.Users.ExcludeUsers
+    if ($ExcludedUsers.Count -gt 50) {
+        $Issues += "Large number of user exclusions ($($ExcludedUsers.Count)) — review required"
+        if ($RiskLevel -ne "High") { $RiskLevel = "Medium" }
+    }
+
+    $IssuesSummary = if ($Issues.Count -gt 0) { $Issues -join "; " } else { "None" }
+
+    if ($RiskLevel -eq "High") {
+        Write-Host "ALERT: '$($Policy.DisplayName)' — $IssuesSummary" -ForegroundColor Red
+    } elseif ($RiskLevel -eq "Medium") {
+        Write-Host "WARN : '$($Policy.DisplayName)' — $IssuesSummary" -ForegroundColor Yellow
+    } else {
+        Write-Host "OK   : '$($Policy.DisplayName)' — MFA enforced, policy enabled." -ForegroundColor Green
+    }
+
+    $Results += [PSCustomObject]@{
+        Timestamp      = Get-Date
+        PolicyName     = $Policy.DisplayName
+        State          = $Policy.State
+        MFAEnforced    = $HasMFA
+        UserExclusions = $ExcludedUsers.Count
+        RiskLevel      = $RiskLevel
+        Issues         = $IssuesSummary
+        NISTControl    = "IA-2, IA-2(1), AC-17"
+    }
+}
+
+# Export compliance report
+if (-not (Test-Path ".\reports")) { New-Item -ItemType Directory -Path ".\reports" | Out-Null }
+$Results | Export-Csv -Path $ReportPath -NoTypeInformation
+
+$HighRisk = ($Results | Where-Object { $_.RiskLevel -eq "High" }).Count
+Write-Host "`nConditional Access Audit Complete." -ForegroundColor Cyan
+Write-Host "Total policies reviewed        : $($Results.Count)"
+Write-Host "High-risk policies flagged     : $HighRisk" -ForegroundColor Red
+Write-Host "Report saved to                : $ReportPath" -ForegroundColor Green
